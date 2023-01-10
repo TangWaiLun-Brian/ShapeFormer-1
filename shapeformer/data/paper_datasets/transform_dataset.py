@@ -17,6 +17,12 @@ for
 [[3, 4, 16, 18, 20, 22], [3, 12, 14, 15, 17], [62, 80, 82,100,0,10,20,30,40,50]]
 """
 from scipy.spatial.transform import Rotation as R
+def align_to_shapenet(pc):
+    center = (np.max(pc, axis=0) + np.min(pc, axis=0)) / 2
+    bounding_box = np.max(pc, axis=0) - np.min(pc, axis=0)
+    print(np.sqrt(np.sum(bounding_box**2)))
+    pc = (pc - center) / np.sqrt(np.sum(bounding_box**2)) * 1
+    return pc
 def apply_random_rotation(points):
     r = R.random()
     return r.apply(points), r
@@ -47,8 +53,8 @@ def apply_random_transforms(X, Ys={}, mode=[], max_voxels=812, voxel_dim=16):
     hbd, lbd = X.max(axis=0), X.min(axis=0)
     center = (hbd+lbd)/2
     leng = hbd-lbd
-    
-    Xbd2 = (X - center)/leng.max() * .6         # fit to [-.6, .6]
+    # Table: Remember to add *2 for Xbd2 and Ys[key]
+    Xbd2 = (X - center)/leng.max() * .6           # fit to [-.6, .6]
     for key in Ys:
         Ys[key] = (Ys[key]-center)/leng.max() * .6
     
@@ -100,13 +106,16 @@ class TransformDataset(Dataset):
         return len(self.dset)
     def __getitem__(self, ind):
         ditem = self.dset[ind]
+        #return ditem
         if "Xbd" in ditem:
             nditem = {"Xbd":ditem["Xbd"].copy()}
             if "Xct" in ditem:
                 nditem["Xct"] = ditem["Xct"].copy()
+
             if "Xtg" in ditem and self.apply_Xtg==True:
                 nditem["Xtg"] = ditem["Xtg"].copy()
             ret = apply_random_transforms(ditem["Xbd"].copy(), nditem, mode=self.mode, max_voxels=self.max_voxels, voxel_dim=self.voxel_dim)
+
             for key in ret:
                 ditem[key] = ret[key].astype(np.float32)
         return ditem

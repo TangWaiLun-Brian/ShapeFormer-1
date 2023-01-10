@@ -1,3 +1,5 @@
+import sys
+sys.path.append('.')
 import glob
 from xgutils import qdaq
 from torch import cuda as torch_cuda
@@ -9,7 +11,7 @@ import argparse
 from pytorch_lightning import Trainer as plTrainer, loggers
 from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
-import sys
+
 from xgutils import sysutil, optutil
 # set the default root to this trainer.py file's folder
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -161,7 +163,7 @@ class Trainer():
         early_stop_callback = EarlyStopping(
             monitor='val/loss',
             min_delta=0.00001,
-            patience=3,
+            patience=10,
             verbose=True,
             mode='min',
             strict=True,
@@ -198,18 +200,20 @@ class Trainer():
         print("Test!!", len(self.data_module.train_set),
               len(self.data_module.val_set))
         self.trainer.fit(self.model, self.data_module)
-        print("Model trained, best model path: ",
-              self.checkpoint_callback.best_model_path)
-        self.test(resume_from=self.checkpoint_callback.best_model_path)
         # backup after training
-        if False:
+        if True:
             print('Finished training')
             save_path = os.path.join(
                 minfo['experiments_dir'], minfo['session_name'])
             print('Save the experiment folder as %s' % (save_path))
             shutil.copytree(expr_dir, save_path)
-            shutil.copytree(src_dir,  os.path.join(save_path, 'src'))
+            shutil.copytree(src_dir, os.path.join(save_path, 'src'))
             print('Done.')
+            
+        print("Model trained, best model path: ",
+              self.checkpoint_callback.best_model_path)
+        self.test(resume_from=self.checkpoint_callback.best_model_path)
+
 
     def test(self, resume_from=None):
         self.data_module.prepare_data()
@@ -258,7 +262,7 @@ class Trainer():
     def parse_resume(self, ckpt):
         minfo = self.minfo
         if ckpt == '' or ckpt == 'restart':
-            if 'shapeformer/experiments/' not in minfo['expr_dir'] or minfo['expr_dir'].endswith('experiments') or minfo['expr_dir'].endswith('experiments/'):
+            if False and ('shapeformer/experiments/' not in minfo['expr_dir'] or minfo['expr_dir'].endswith('experiments') or minfo['expr_dir'].endswith('experiments/')):
                 # prevent accidentally remove irrelevant files
                 raise ValueError(f"Invalid resume_from: {minfo['expr_dir']}")
             else:
@@ -289,8 +293,7 @@ class Trainer():
     def run_callbacks(self):
         self.data_module.prepare_data()
         self.data_module.setup()
-        self.model = self.model_class.load_from_checkpoint(
-            self.resume_from_checkpoint)
+        self.model = self.model_class.load_from_checkpoint(self.resume_from_checkpoint)
         for callback in self.callbacks:
             if hasattr(callback, "post_training_process"):
                 print("Run callback: ", callback)
@@ -338,7 +341,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
     gpus = parsed.gpus
     if gpus is None or len(gpus) == 0:
-        gpus = [0]  # , 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        gpus = [0,1,2,3]  # , 1, 2, 3, 4, 5, 6, 7, 8, 9]
     elif gpus[0] == -1:
         gpus = list(range(torch_cuda.device_count()))
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(lambda x: str(x), gpus))

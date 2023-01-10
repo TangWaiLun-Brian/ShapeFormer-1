@@ -33,7 +33,7 @@ class VQDIF(pl.LightningModule):
         self.criterion = VQLoss(beta=vq_beta)
 
     def encode(self, Xbd, **kwargs):
-        grid_feat, grid_mask = self.encoder(Xbd/2.)  # [-1,1] -> [-.5,.5]
+        grid_feat, grid_mask = self.encoder((Xbd/2.).float())  # [-1,1] -> [-.5,.5]
         return grid_feat, grid_mask
 
     def encode_quant(self, Xbd, **kwargs):
@@ -94,7 +94,7 @@ class VQDIF(pl.LightningModule):
         Xbd = batch["Xbd"] if self.Xct_as_Xbd == False else batch["Xct"]
         out = self.forward(Xbd=Xbd, Xtg=batch["Xtg"])
         losses = self.criterion.get_loss(
-            logits=out["logits"], label=batch["Ytg"], quant_diff=out["quant_diff"])
+            logits=out["logits"], label=batch["Ytg"].float(), quant_diff=out["quant_diff"])
         return losses
 
     def training_step(self, batch, batch_idx, stage="train"):

@@ -8,8 +8,8 @@ sudo docker run --gpus all -it \
 -p 4954:8888 \
 -p 4955:6006 \
 --ipc=host   \
--v /studio:/studio \ # REPLACE the /studio to your desired physical host location, for example ~/home/workshop/
-shapeformer:latest \
+-v /studio:/studio \
+qheldiv/shapeformer:latest \
 bash
 
 #-v qinglong:/studio \

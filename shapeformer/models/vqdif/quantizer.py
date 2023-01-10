@@ -83,7 +83,8 @@ class Quantizer(nn.Module):
             self.embedding.weight.data.copy_(encode_normalized)
 
         quant_feat_st = (quant_feat - grid_feat).detach() + grid_feat
-        quant_diff    = (grid_feat  - quant_feat.detach()).pow(2).mean()
+        mean = (grid_feat - quant_feat.detach()).pow(2).mean()
+        quant_diff    = mean
         # e, e straight-through (used for loss back-prop), indices
         # (b,c,x1,x2), (b,c,x1,x2), (b,x1,x2)
         return quant_feat, quant_feat_st, encoding_indices, quant_diff

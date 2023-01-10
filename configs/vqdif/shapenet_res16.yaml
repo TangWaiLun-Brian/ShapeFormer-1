@@ -1,8 +1,8 @@
 project_name: shapeformer
 expr_name: vqdif/shapenet_res16
 pltrainer_opt:
-  resume_from: 'latest' 
-  gpus: [4] # can be [list of int],[int],or[str]
+  resume_from: '/data/brian22/ShapeFormer/experiments/vqdif/shapenet_res16_221122_1511/checkpoints/epoch029-val_loss0.0132.ckpt' #'/data/brian22/ShapeFormer/experiments/vqdif/shapenet_res16_221111_1128/checkpoints/epoch059-val_loss0.0210.ckpt'
+  gpus: [0] # can be [list of int],[int],or[str]
   logger: wandb
   logger_kwargs:
     mode: "disabled" # online, offline, disabled
@@ -10,7 +10,7 @@ pltrainer_opt:
     notes: "Train VQDIF on all categories of the imnet dataset (a subset of ShapeNet)."
     #id: "0"
   auto_lr_find: False
-  check_val_every_n_epoch: 5
+  check_val_every_n_epoch: 10
   max_epochs: 300
 pl_model_opt:
   class: shapeformer.models.vqdif.vqdif.VQDIF
@@ -20,7 +20,7 @@ pl_model_opt:
       kwargs:
         hidden_dim: 32
         plane_type: 'grid'
-        grid_resolution: 64
+        grid_resolution: 64  #64
         c_dim: 32
         downsampler: True
         downsampler_kwargs: 
@@ -63,11 +63,11 @@ datamodule_opt:
     trainset_opt: &dset_opt
       class: shapeformer.data.imnet_datasets.imnet_datasets.Imnet2LowResDataset
       kwargs:
-        dataset: IMNet2_64
-        cate: "all" # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7loudspeaker, 8gun, 9sofa, 10table, 11loudspeaker, 12vessel
+        dataset: IMNet2_packed
+        cate: [1] # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7loudspeaker, 8gun, 9sofa, 10table, 11loudspeaker, 12vessel
         boundary_N: 32768
         weighted_sampling: False
-        grid_dim: 64
+        grid_dim: 64  #64
         target_N: 8192
         duplicate_size: 1
         partial_opt: # intersect the point cloud with a random ball. Has no effect for VQDIF training.
@@ -76,11 +76,11 @@ datamodule_opt:
     testset_opt:
       class: shapeformer.data.imnet_datasets.imnet_datasets.Imnet2LowResDataset
       kwargs:
-        dataset: IMNet2_64
+        dataset: IMNet2_packed
         boundary_N: 32768
-        cate: "all" # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7cab, 8gun, 9sofa, 10table, 11?, 12vessel
+        cate: [1] # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7cab, 8gun, 9sofa, 10table, 11?, 12vessel
         target_N: -1
-        grid_dim: 64
+        grid_dim: 64  #64
         partial_opt:
           class: shapeformer.data.partial.BallSelector
           kwargs: {radius: .4, context_N: 4096}
@@ -89,7 +89,7 @@ callbacks:
     class: shapeformer.models.vqdif.vqdif.VisSparseRecon3D
     kwargs:
       no_sanity_check: True
-      every_n_epoch: 5
+      every_n_epoch: 50
       quant_grid_depth: 4
       max_length: 512
       vocab_size: 4096

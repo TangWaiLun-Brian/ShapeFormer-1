@@ -5,11 +5,12 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 import time
 from xgutils import *
+from xgutils.ptutil import make_ply_file_from_pc
 from einops import rearrange, repeat
 import numpy as np
 import traceback
 import igl
-
+import json
 from .common import *
 
 
@@ -20,6 +21,12 @@ class ShapeFormer(pl.LightningModule):
         self.__dict__.update(locals())
         self.save_hyperparameters()
         self.transformer = sysutil.instantiate_from_opt(opt=transformer_opt)
+        # ckpt vqvae ckpt_path prefix might be wrong
+        # hardcode to proj50 prefix
+        proj52_prefix = '/data/ssd/brian22/summer_intern/others_work/'
+        proj50_prefix = '/data/brian22'
+        if proj52_prefix in representer_opt['kwargs']['vqvae_opt']['ckpt_path']:
+            representer_opt['kwargs']['vqvae_opt']['ckpt_path'] = os.path.join(proj50_prefix, representer_opt['kwargs']['vqvae_opt']['ckpt_path'][len(proj52_prefix):])
         self.representer = sysutil.instantiate_from_opt(opt=representer_opt)
         assert "TupleGPT" in transformer_opt["class"]
 
@@ -140,6 +147,7 @@ class ShapeFormer(pl.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
+        return 0
         loss = self.shared_step(batch, batch_idx, stage="train")
         self.log("train/loss", loss, prog_bar=True,
                  logger=True, sync_dist=True)
@@ -213,13 +221,52 @@ class VisShapeFormer(plutil.VisCallback):
                  mask_invalid=True, mask_invalid_completion=False, force_keep_c_indices=False, sort_prob=True,
                  partial_radius=0.02, camPos=np.array([2, 2, 2]), resolution=(512, 512), **kwargs):
         self.__dict__.update(locals())
+        dataset = None
+        if 'dataset' in kwargs.keys():
+            dataset = kwargs['dataset']
+            del kwargs['dataset']
+            cate = kwargs['cate']
+            del kwargs['cate']
+        if 'multi_process' in  kwargs.keys():
+            multi_process = kwargs['multi_process']
+            del kwargs['multi_process']
+            process_number = kwargs['process_number']
+            del kwargs['process_number']
+            pre = kwargs['pre']
+            del kwargs['pre']
+            resume_dir = kwargs['resume_dir']
+            del kwargs['resume_dir']
+            
         super().__init__(**kwargs)
         self.vis_camera = dict(camPos=np.array(camPos), camLookat=np.array([0., 0., 0.]),
                                camUp=np.array([0, 1, 0]), camHeight=2, resolution=resolution, samples=render_samples)
         self.all_Xtg = nputil.makeGrid(
             [-1, -1, -1.], [1., 1, 1], [self.decode_res, ]*3, indexing="ij")
+        if dataset is None:    #kwargs['dataset'] == 'shapenet'
+            shape_path = os.path.join("/data/brian22/ShapeFormer/datasets/IMNet2_packed/", f'shape_name_test.txt')
+            lines = open(shape_path, "r").readlines()
+            self.shape_names = [line.strip() for line in lines]
+        elif dataset == 'partnet':
+            #cate = '04379243' if 1 in kwargs['cate'] else '03001627'
+            shape_path = os.path.join('/data/brian22/ShapeFormer/datasets/PartNet_Split/', f"partnet_{cate}_test.json")
+            with open(shape_path, 'r') as fp:
+                info = json.load(fp)
+            self.shape_names = [cate+'/'+item['model_id'] for item in info]
+            if multi_process > 0:
+                start = (len(self.shape_names)-pre) * process_number // multi_process + pre
+                end = (len(self.shape_names)-pre) * (process_number+1) // multi_process + pre
+                self.shape_names = self.shape_names[start:end]
+
+                self.shape_names = [name for name in self.shape_names if
+                                    not os.path.exists(os.path.join(resume_dir, name.split('/')[-1], 'fake-z9.obj'))]
+        else:
+            print(f"{kwargs['dataset']} is not a dataset! use shapenet or partnet instead")
+            exit()
 
     def compute_batch(self, batch, input_name=""):
+        #print(f"batch : {batch}")
+        #computed = dict(batch=batch)
+        #return computed
         c_indices, z_indices, extra_indices, others = self.pl_module.representer.get_indices(
             stage="test", **batch)
         empty_index = others["empty_index"]
@@ -244,6 +291,7 @@ class VisShapeFormer(plutil.VisCallback):
         #print("extra", extra_indices)
         #print("sampled indices:", (sample_indices!=4096).sum(axis=1))
         #print("sampled origin indices:", origin_sample_indices)
+        
         computed = dict(batch=batch)
         computed["samples"] = sample_indices
         computed["origin_samples"] = origin_sample_indices
@@ -251,6 +299,8 @@ class VisShapeFormer(plutil.VisCallback):
         computed["c_ind"] = others["origin_c_indices"]
         computed["z_ind"] = others["origin_z_indices"]
         computed["empty_index"] = empty_index
+        computed["input_index"] = batch['index']
+        
 
         computed = ptutil.ths2nps(computed)
         if self.sort_prob == True:
@@ -261,7 +311,13 @@ class VisShapeFormer(plutil.VisCallback):
 
     def visualize_batch(self, computed, input_name=""):
         computed = ptutil.ths2nps(computed)
-        batch, samples, c_ind, z_ind = computed["batch"], computed["samples"], computed["c_ind"], computed["z_ind"]
+        #P2 = "/data/ssd/brian22/summer_intern/others_work/ShapeFormer/experiments/shapeformer/shapenet_scale/results/VisShapeFormer/computed/"
+        #if os.path.exists(P2):
+        #    os.system(f'rm -r {P2}')
+        #return {}
+        batch, samples, c_ind, z_ind, input_index = computed["batch"], computed["samples"], computed["c_ind"], computed["z_ind"], computed["input_index"]
+        tmp = input_name
+        input_name = self.shape_names[input_index[0].astype(int)]
         logits_history = computed["logits_history"]
         # samples: (B, L, tuple_n)
         # samples = samples[1] # pos samples
@@ -306,25 +362,60 @@ class VisShapeFormer(plutil.VisCallback):
                 sample = np.stack([uni, cated[uniind, 1]], axis=1)
             imgs.update(vis_ind(indices=sample, prefix=f"s{i}", **config))
         eval_pcs = []
+
+        print(input_name)
+        print(input_name)
+        print(input_name)
+        #return {}
+        eval_dir = os.path.join(self.data_dir, "merge_partnet_chair/")
+        sysutil.mkdirs(eval_dir)
+        eval_dir = os.path.join(eval_dir, input_name.split('/')[-1])
+        sysutil.mkdirs(eval_dir)
+        make_ply_file_from_pc(os.path.join(eval_dir, 'raw.ply'), batch['Xct'][0])
+
+        i = 0
         for key in list(imgs.keys()):
             if "mesh" in key:
-                mesh_dir = os.path.join(self.data_dir, "meshes/")
-                sysutil.mkdirs(mesh_dir)
+                #mesh_dir = os.path.join(self.data_dir, "meshes/")
+                #sysutil.mkdirs(mesh_dir)
                 vert, face = imgs[key]["vert"].copy(), imgs[key]["face"].copy()
                 del imgs[key]
                 if vert.shape[0] < 10:
                     continue
-                igl.write_triangle_mesh(os.path.join(
-                    mesh_dir, input_name+"_"+key+".ply"), vert, face,  force_ascii=False)
+                if 1 <= i <= 10:
+                    igl.write_triangle_mesh(os.path.join(
+                        eval_dir, f"fake-z{i-1}.obj"), vert, face,  force_ascii=False)
                 if key[0] == "s":
                     eval_pc = geoutil.sampleMesh(vert, face, sampleN=10**5)
                     eval_pcs.append(eval_pc)
-        eval_dir = os.path.join(self.data_dir, "eval/")
-        sysutil.mkdirs(eval_dir)
+                i += 1
+        #print(batch['Xbd'][0].shape)
+        '''
+        P = "/data/ssd/brian22/summer_intern/others_work/ShapeFormer/datasets/IMNet2_fixed_data/train/"
+        P2 = "/data/ssd/brian22/summer_intern/others_work/ShapeFormer/experiments/shapeformer/shapenet_scale/results/VisShapeFormer/computed/"
+        P = os.path.join(P, input_name.split('-')[0], input_name.split('-')[1])
+        cmd = f"mkdir {P}"
+        os.system(cmd)
+
+        make_ply_file_from_pc(os.path.join(P,f'gt.ply'), batch['Xbd'][0])
+        make_ply_file_from_pc(os.path.join(P, f'partial.ply'), batch['Xct'][0])
+        
+        if eval(tmp) % 4 == 0:
+            if os.path.exists(P2):
+                os.system(f'rm -r {P2}')
+        '''
+
+
         eval_dict = dict(eval_pc=eval_pcs[0])
         for eni, pc in enumerate(eval_pcs):
+            keep_id = np.random.choice(pc.shape[0], 8192, replace=False)
+            pc = pc[keep_id]
+            #make_ply_file_from_pc(os.path.join(eval_dir, f'fake-z{eni}.ply'), pc)
+            #print(pc.shape)
             eval_dict[f"recon_{eni}"] = pc
-        np.savez(f"{eval_dir}/{input_name}.npz", **eval_dict)
+
+        
+        #np.savez(f"{eval_dir}/{input_name}.npz", **eval_dict)
 
         return imgs
 

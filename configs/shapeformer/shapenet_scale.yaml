@@ -2,15 +2,15 @@ project_name: shapeformer
 expr_name: shapeformer/shapenet_scale
 
 pltrainer_opt:
-  resume_from: 'latest' #'ckpt_epoch=499-val_loss=-1.74e+00.ckpt'
-  gpus: [4] # can be [list of int],[int],or[str]
+  resume_from: '' #'epoch299-val_loss0.6665.ckpt' #'epoch249-val_loss0.6394.ckpt' #'epoch065-val_loss0.4147.ckpt' #'latest'
+  gpus: [2] # can be [list of int],[int],or[str]
   logger: wandb
   logger_kwargs:
     mode: "disabled" # online, offline, disabled
     tags: ["3d_trans", "ShapeFormer", "IMNet_all", "revision", "random_cind_mask"] # "Uncond"]
     notes: "AR+next cond"
   auto_lr_find: False
-  check_val_every_n_epoch: 2
+  check_val_every_n_epoch: 50
   max_epochs: 300
 
 pl_model_opt:
@@ -34,7 +34,9 @@ pl_model_opt:
         mask_invalid_completion: True
         vqvae_opt:
           class: shapeformer.models.vqdif.vqdif.VQDIF
-          ckpt_path: "experiments/vqdif/shapenet_res16/checkpoints/epoch=31-step=34143.ckpt"
+          ckpt_path: '/data/brian22/ShapeFormer/experiments/vqdif/shapenet_res16_221111_1128/checkpoints/epoch059-val_loss0.0210.ckpt'
+          # shapenet chair: '/data/brian22/ShapeFormer/experiments/vqdif/shapenet_res16_221111_1128/checkpoints/epoch059-val_loss0.0210.ckpt'
+          # shapenet table: '/data/brian22/ShapeFormer/experiments/vqdif/shapenet_res16_221122_1511/checkpoints/epoch029-val_loss0.0132.ckpt' 
           yaml_path: "configs/vqdif/shapenet_res16.yaml"
     transformer_opt:
       class: shapeformer.models.shapeformer.transformer.mingpt.CondTupleGPT
@@ -70,8 +72,8 @@ datamodule_opt:
           class: shapeformer.data.imnet_datasets.imnet_datasets.Imnet2LowResDataset
           kwargs:
             split: "train"
-            dataset: IMNet2_64
-            cate: "all" # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7cab, 8gun, 9sofa, 10table, 11?, 12vessel
+            dataset: IMNet2_packed  #_packed
+            cate: [1] # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7cab, 8gun, 9sofa, 10table, 11?, 12vessel
             boundary_N: 32768
             weighted_sampling: False
             grid_dim: 64
@@ -90,9 +92,9 @@ datamodule_opt:
           class: shapeformer.data.imnet_datasets.imnet_datasets.Imnet2LowResDataset
           kwargs:
             split: "test"
-            dataset: IMNet2_64
+            dataset: IMNet2_packed
             boundary_N: 32768
-            cate: "all" # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7cab, 8gun, 9sofa, 10table, 11?, 12vessel
+            cate: &category [1] # 0plane, 1bench, 2cabinet, 3car, 4tv, 5chair, 6lamp, 7cab, 8gun, 9sofa, 10table, 11?, 12vessel
             target_N: -1
             grid_dim: 64
             partial_opt:
@@ -105,7 +107,9 @@ callbacks:
       no_sanity_check: True
       every_n_epoch: 4
       end_tokens: *end_tokens
-
+      dataset: "shapenet"
+      cate: *category
+      
       top_k: 100
       top_p: 0.4
       depth: 4
